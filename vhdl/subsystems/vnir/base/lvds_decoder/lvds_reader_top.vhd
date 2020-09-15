@@ -38,12 +38,10 @@
 --        until the module is reset.
 --        Inspiration was taken from AMS tsc_mv1_rx.vhd
 --
---        NOTE: There are 3 different clock domains used within this code:
---            * The main system clock (~50 MHz) (system_clock):
---                system_reset, cmd_start_align
+--        NOTE: There are 2 different clock domains used within this code:
 --            * The recovered parallel data clock (~48 MHz) (lvds_parallel_clock):
 --                word_alignment_error, pll_locked, alignment_done, 
---                lvds_parallel_data
+--                lvds_parallel_data, cmd_start_align
 --            * The serial LVDS clock (~240 MHz) (lvds_clock_in):
 --                lvds_data_in [DDR], lvds_ctrl_in [DDR]
 --
@@ -57,10 +55,8 @@
 --    @param[in] DATA_TRAINING_PATTERN
 --        Known pattern sent by the VNIR for conducting word alignment.
 --
---    @param[in] system_clock
---        Main system clock.
---    @param[in] system_reset
---        Main system synchronous reset.
+--    @param[in] reset_n
+--        Asynchronous active-low reset.
 --
 --    @param[in] lvds_data_in
 --        Serial LVDS signals from the VNIR data channels.
@@ -114,9 +110,8 @@ entity lvds_reader_top is
         CTRL_TRAINING_PATTERN   : std_logic_vector (9 downto 0) := (9 => '1', others => '0')
     );
     port(
-        -- main system clock and reset
-        system_clock            : in std_logic;
-        system_reset            : in std_logic;
+        -- Asynchronous active-low reset
+        reset_n                 : in std_logic;
         
         -- Input from LVDS data, control, and clock pins
         lvds_data_in            : in std_logic_vector(NUM_CHANNELS-1 downto 0);
@@ -165,8 +160,7 @@ architecture rtl of lvds_reader_top is
     signal alignment_word   : std_logic_vector (9 downto 0);
     
     -- Signals to track if the PLL loses lock
-    signal pll_lost_lock_1  : std_logic;
-    signal pll_lost_lock_2  : std_logic;
+    signal pll_lost_lock  : std_logic;
     
     -- Indicates alignment for channel has completed
     signal channel_done : std_logic;
@@ -266,11 +260,23 @@ begin
     -- Send PLL parallel clock to output
     lvds_parallel_clock    <= i_lvds_parallel_clock(0);
     
+    lvds_pll_reset         <= not reset_n;
     
-    main_process : process (system_clock, i_lvds_parallel_clock(0), system_reset)
+    lost_lock_process : process (reset_n, main_process_FSM, pll_locked_extended)
+    begin
+        if reset_n = '0' then
+            pll_lost_lock <= '0';
+        elsif main_process_FSM = s_IDLE then
+            pll_lost_lock <= '0';
+        elsif pll_locked_extended /= check_pll_locked then
+            pll_lost_lock <= '1';
+        end if;
+    end process lost_lock_process;
+
+    main_process : process (i_lvds_parallel_clock(0), reset_n)
     begin
 
-        if (system_reset = '1') then
+        if (reset_n = '0') then
                 
             -- Set signals to default values
             align_channel       <= '0';
@@ -279,84 +285,65 @@ begin
             channel_select      <= 0;
             alignment_word      <= (others => '0');
             current_data        <= (others => '0');
-            lvds_pll_reset      <= '1';
-            pll_lost_lock_1     <= '0';
             
-        else
-            -- Outside rising_edge elsewise PLL never exits reset
-            lvds_pll_reset      <= '0';
+        elsif rising_edge(i_lvds_parallel_clock(0)) then
             
-            -- If PLL loses lock, stop alignment
-            -- Outside of rising_edge since lvds_clock_output might stop            
-            if (main_process_FSM = s_IDLE) then
-                pll_lost_lock_1 <= '0';
-            else
-                if (pll_locked_extended /= check_pll_locked) then
-                    pll_lost_lock_1 <= '1';
-                end if;
-            end if;
-        
-            if rising_edge(i_lvds_parallel_clock(0)) then
-            
-                -- Default values
-                align_channel     <= '0';
-                alignment_done     <= '0';
-                                
-                -- FSM
-                case main_process_FSM is
-                    when s_IDLE =>
-                        if (cmd_start_align = '1') then
+            -- Default values
+            align_channel     <= '0';
+            alignment_done     <= '0';
+                            
+            -- FSM
+            case main_process_FSM is
+                when s_IDLE =>
+                    if (cmd_start_align = '1') then
+                        main_process_FSM    <= s_START_ALIGN;
+                        channel_select      <= 0;
+                    end if;
+                    
+                when s_START_ALIGN =>
+                    align_channel           <= '1';
+                    main_process_FSM        <= s_ALIGN;
+                
+                -- Iterate through and align each data channel
+                when s_ALIGN =>
+                    if (channel_done = '1') then
+                        if (channel_select = NUM_CHANNELS) then
+                            main_process_FSM    <= s_IDLE;
+                            alignment_done      <= '1';
+                        else
+                            channel_select      <= channel_select + 1;
                             main_process_FSM    <= s_START_ALIGN;
-                            channel_select      <= 0;
                         end if;
-                        
-                    when s_START_ALIGN =>
-                        align_channel           <= '1';
-                        main_process_FSM        <= s_ALIGN;
-                    
-                    -- Iterate through and align each data channel
-                    when s_ALIGN =>
-                        if (channel_done = '1') then
-                            if (channel_select = NUM_CHANNELS) then
-                                main_process_FSM    <= s_IDLE;
-                                alignment_done      <= '1';
-                            else
-                                channel_select      <= channel_select + 1;
-                                main_process_FSM    <= s_START_ALIGN;
-                            end if;
-                        end if;
-                end case;
-                    
-                -- Select data channel to be aligned
-                current_data <= lvds_data_array(channel_select);
+                    end if;
+            end case;
                 
-                -- Generate training word (known word generated by VNIR)
-                if (channel_select = NUM_CHANNELS) then
-                    alignment_word        <= CTRL_TRAINING_PATTERN;
-                else
-                    alignment_word        <= DATA_TRAINING_PATTERN;
-                end if;
-                
-                -- If error in finding word boundary
-                if ((lvds_cda_max(channel_select) = '1') and (bitslip_rollover = '1')) then
-                    main_process_FSM <= s_IDLE;
-                end if;
-                
-                -- If the PLL loses lock, stop alignment
-                if (pll_lost_lock_1 = '1') then
-                    main_process_FSM <= s_IDLE;
-                end if;
-                    
+            -- Select data channel to be aligned
+            current_data <= lvds_data_array(channel_select);
+            
+            -- Generate training word (known word generated by VNIR)
+            if (channel_select = NUM_CHANNELS) then
+                alignment_word        <= CTRL_TRAINING_PATTERN;
+            else
+                alignment_word        <= DATA_TRAINING_PATTERN;
+            end if;
+            
+            -- If error in finding word boundary
+            if ((lvds_cda_max(channel_select) = '1') and (bitslip_rollover = '1')) then
+                main_process_FSM <= s_IDLE;
+            end if;
+            
+            -- If the PLL loses lock, stop alignment
+            if (pll_lost_lock = '1') then
+                main_process_FSM <= s_IDLE;
             end if;
         end if;
     end process;
-        
     
     -- Controls word alignment for an individual channel
-    align_channel_process : process(i_lvds_parallel_clock(0), system_reset)
+    align_channel_process : process(i_lvds_parallel_clock(0), reset_n)
     begin
         
-        if (system_reset = '1') then
+        if (reset_n = '0') then
             
             -- Set signals to default values
             lvds_bitslip            <= (others => '0');
@@ -364,82 +351,67 @@ begin
             alignment_FSM           <= s_IDLE;
             counter                 <= 3;
             word_alignment_error    <= '0';
-            pll_lost_lock_2         <= '0';
             bitslip_rollover        <= '0';
             
-        else
-            -- If PLL loses lock, stop alignment
-            -- Outside of rising_edge since lvds_clock_output might stop
-            if (alignment_FSM = s_IDLE) then
-                pll_lost_lock_2 <= '0';
-            else
-                if (pll_locked_extended /= check_pll_locked) then
-                    pll_lost_lock_2 <= '1';
-                end if;
+        elsif rising_edge(i_lvds_parallel_clock(0)) then
+        
+            -- Set default values
+            lvds_bitslip <= (others => '0');
+            channel_done <= '0';
+            
+            -- FSM
+            case alignment_FSM is
+                when s_IDLE =>
+                    if (align_channel = '1') then
+                        alignment_FSM       <= s_CHECKVALUE;    
+                        bitslip_rollover    <= '0';
+                    end if;
+                    
+                    
+                when s_CHECKVALUE =>
+                    -- Compare the received value with the expected one
+                    if (current_data = alignment_word) then
+                        alignment_FSM   <= s_IDLE;
+                        channel_done    <= '1';
+                    else
+                        -- perform bitslip to match word boundary
+                        lvds_bitslip(channel_select) <= '1';
+                        alignment_FSM   <= s_WAIT;
+                        counter         <= 3;
+                    end if;
+                
+                
+                when s_WAIT =>
+                
+                    -- Wait for change to take effect
+                    if (counter = 0) then
+                        alignment_FSM <= s_CHECKVALUE;
+                    else
+                        counter <= counter - 1;
+                    end if;
+                
+                    -- If module fails to find correct word boundary
+                    if ((lvds_cda_max(channel_select) = '1') and (bitslip_rollover = '1'))then
+                        -- Allow the CDA counter to rollover twice before 
+                        --flagging error since the counter can't be reset
+                        word_alignment_error    <= '1';
+                        alignment_FSM           <= s_IDLE;    
+                        bitslip_rollover        <= '0';
+                        
+                    -- Detect falling edge of lvds_cda_max for first bitslip rollover
+                    elsif ((lvds_cda_max(channel_select) = '0') and (lvds_cda_max_prev = '1')) then
+                        bitslip_rollover <= '1';                        
+                    end if;
+                    
+            end case;
+            
+            if (pll_lost_lock = '1') then
+                alignment_FSM <= s_IDLE;
             end if;
-        
-        
-            if rising_edge(i_lvds_parallel_clock(0)) then
-                
-                -- Set default values
-                lvds_bitslip <= (others => '0');
-                channel_done <= '0';
-                
-                -- FSM
-                case alignment_FSM is
-                    when s_IDLE =>
-                        if (align_channel = '1') then
-                            alignment_FSM       <= s_CHECKVALUE;    
-                            bitslip_rollover    <= '0';
-                        end if;
-                        
-                        
-                    when s_CHECKVALUE =>
-                        -- Compare the received value with the expected one
-                        if (current_data = alignment_word) then
-                            alignment_FSM   <= s_IDLE;
-                            channel_done    <= '1';
-                        else
-                            -- perform bitslip to match word boundary
-                            lvds_bitslip(channel_select) <= '1';
-                            alignment_FSM   <= s_WAIT;
-                            counter         <= 3;
-                        end if;
-                    
-                    
-                    when s_WAIT =>
-                    
-                        -- Wait for change to take effect
-                        if (counter = 0) then
-                            alignment_FSM <= s_CHECKVALUE;
-                        else
-                            counter <= counter - 1;
-                        end if;
-                    
-                        -- If module fails to find correct word boundary
-                        if ((lvds_cda_max(channel_select) = '1') and (bitslip_rollover = '1'))then
-                            -- Allow the CDA counter to rollover twice before 
-                            --flagging error since the counter can't be reset
-                            word_alignment_error    <= '1';
-                            alignment_FSM           <= s_IDLE;    
-                            bitslip_rollover        <= '0';
-                            
-                        -- Detect falling edge of lvds_cda_max for first bitslip rollover
-                        elsif ((lvds_cda_max(channel_select) = '0') and (lvds_cda_max_prev = '1')) then
-                            bitslip_rollover <= '1';                        
-                        end if;
-                        
-                end case;
-                
-                if (pll_lost_lock_2 = '1') then
-                    alignment_FSM <= s_IDLE;
-                end if;
-                
+            
 
-                lvds_cda_max_prev <= lvds_cda_max(channel_select);
-                
-                    
-            end if;
+            lvds_cda_max_prev <= lvds_cda_max(channel_select);
+
         end if;
     end process;
 

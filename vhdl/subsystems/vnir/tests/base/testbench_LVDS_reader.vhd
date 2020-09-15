@@ -67,8 +67,7 @@ architecture tb of testbench_LVDS_reader is
             CTRL_TRAINING_PATTERN   : std_logic_vector (9 downto 0) := trainingPattern_ctrl
         );
         port(
-            system_clock            : in std_logic;
-            system_reset            : in std_logic;
+            reset_n                 : in std_logic;
             
             lvds_data_in            : in std_logic_vector (15 downto 0);
             lvds_ctrl_in            : in std_logic;
@@ -236,8 +235,7 @@ begin
     
     
     dut : lvds_reader_top port map(
-        system_clock            => system_clock,
-        system_reset            => system_reset,
+        reset_n                 => not system_reset,
         lvds_data_in            => lvds_data_in,
         lvds_ctrl_in            => lvds_ctrl_in,
         lvds_clock_in           => lvds_clock_in,
