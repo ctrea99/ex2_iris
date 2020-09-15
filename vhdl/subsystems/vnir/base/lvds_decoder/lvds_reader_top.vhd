@@ -306,23 +306,23 @@ begin
                 case main_process_FSM is
                     when s_IDLE =>
                         if (cmd_start_align = '1') then
-                            main_process_FSM     <= s_START_ALIGN;
-                            channel_select        <= 0;
+                            main_process_FSM    <= s_START_ALIGN;
+                            channel_select      <= 0;
                         end if;
                         
                     when s_START_ALIGN =>
-                        align_channel         <= '1';
-                        main_process_FSM     <= s_ALIGN;
+                        align_channel           <= '1';
+                        main_process_FSM        <= s_ALIGN;
                     
                     -- Iterate through and align each data channel
                     when s_ALIGN =>
                         if (channel_done = '1') then
                             if (channel_select = NUM_CHANNELS) then
-                                main_process_FSM <= s_IDLE;
-                                alignment_done <= '1';
+                                main_process_FSM    <= s_IDLE;
+                                alignment_done      <= '1';
                             else
-                                channel_select    <= channel_select + 1;
-                                main_process_FSM <= s_START_ALIGN;
+                                channel_select      <= channel_select + 1;
+                                main_process_FSM    <= s_START_ALIGN;
                             end if;
                         end if;
                 end case;
@@ -359,12 +359,12 @@ begin
         if (system_reset = '1') then
             
             -- Set signals to default values
-            lvds_bitslip             <= (others => '0');
+            lvds_bitslip            <= (others => '0');
             channel_done            <= '0';
-            alignment_FSM            <= s_IDLE;
-            counter                    <= 3;
-            word_alignment_error     <= '0';
-            pll_lost_lock_2            <= '0';
+            alignment_FSM           <= s_IDLE;
+            counter                 <= 3;
+            word_alignment_error    <= '0';
+            pll_lost_lock_2         <= '0';
             bitslip_rollover        <= '0';
             
         else
@@ -389,7 +389,7 @@ begin
                 case alignment_FSM is
                     when s_IDLE =>
                         if (align_channel = '1') then
-                            alignment_FSM         <= s_CHECKVALUE;    
+                            alignment_FSM       <= s_CHECKVALUE;    
                             bitslip_rollover    <= '0';
                         end if;
                         
@@ -397,12 +397,12 @@ begin
                     when s_CHECKVALUE =>
                         -- Compare the received value with the expected one
                         if (current_data = alignment_word) then
-                            alignment_FSM     <= s_IDLE;
-                            channel_done     <= '1';
+                            alignment_FSM   <= s_IDLE;
+                            channel_done    <= '1';
                         else
                             -- perform bitslip to match word boundary
                             lvds_bitslip(channel_select) <= '1';
-                            alignment_FSM     <= s_WAIT;
+                            alignment_FSM   <= s_WAIT;
                             counter         <= 3;
                         end if;
                     
@@ -420,22 +420,22 @@ begin
                         if ((lvds_cda_max(channel_select) = '1') and (bitslip_rollover = '1'))then
                             -- Allow the CDA counter to rollover twice before 
                             --flagging error since the counter can't be reset
-                            word_alignment_error     <= '1';
-                            alignment_FSM            <= s_IDLE;    
+                            word_alignment_error    <= '1';
+                            alignment_FSM           <= s_IDLE;    
                             bitslip_rollover        <= '0';
                             
                         -- Detect falling edge of lvds_cda_max for first bitslip rollover
                         elsif ((lvds_cda_max(channel_select) = '0') and (lvds_cda_max_prev = '1')) then
-                            bitslip_rollover    <= '1';                        
+                            bitslip_rollover <= '1';                        
                         end if;
                         
                 end case;
                 
                 if (pll_lost_lock_2 = '1') then
-                    alignment_FSM     <= s_IDLE;
+                    alignment_FSM <= s_IDLE;
                 end if;
-                            
                 
+
                 lvds_cda_max_prev <= lvds_cda_max(channel_select);
                 
                     
