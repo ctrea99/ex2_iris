@@ -106,8 +106,8 @@ use work.LVDS_data_array_pkg.all;
 entity lvds_reader_top is
     generic (
         NUM_CHANNELS            : integer := 16;
-        DATA_TRAINING_PATTERN   : std_logic_vector (9 downto 0) := "0001010101";
-        CTRL_TRAINING_PATTERN   : std_logic_vector (9 downto 0) := (9 => '1', others => '0')
+        DATA_TRAINING_PATTERN   : std_logic_vector (9 downto 0);
+        CTRL_TRAINING_PATTERN   : std_logic_vector (9 downto 0)
     );
     port(
         -- Asynchronous active-low reset

@@ -26,7 +26,6 @@ package lvds_decoder_pkg is
         PLACEHOLDER : std_logic;
     end record status_t;
 
-    pure function flatten(fragment : pixel_vector_t) return std_logic_vector;
     pure function unflatten_to_fragment(fragment_flat : std_logic_vector; PIXEL_BITS : integer) return pixel_vector_t;
 
     pure function rotate_right(bits : std_logic_vector; i : integer) return std_logic_vector;
@@ -34,26 +33,10 @@ package lvds_decoder_pkg is
                                     control_target : std_logic_vector)
                                     return integer;
 
-    pure function bitreverse(bits : std_logic_vector) return std_logic_vector;
-    pure function bitreverse(bits : unsigned) return unsigned;
-    pure function bitreverse(fragment : pixel_vector_t) return pixel_vector_t;
-
 end package lvds_decoder_pkg;
 
 
 package body lvds_decoder_pkg is
-
-    pure function flatten(fragment : pixel_vector_t) return std_logic_vector is
-        constant FRAGMENT_BITS : integer := fragment'length*fragment(0)'length;
-        variable fragment_flat : std_logic_vector(FRAGMENT_BITS-1 downto 0);
-    begin
-        for i_pixel in fragment'range loop
-            for i_bit in fragment(0)'range loop
-                fragment_flat(i_bit + i_pixel * fragment(0)'length) := fragment(i_pixel)(i_bit);
-            end loop;
-        end loop;
-        return fragment_flat;
-    end function flatten;
 
     pure function unflatten_to_fragment(fragment_flat : std_logic_vector; PIXEL_BITS : integer
     ) return pixel_vector_t is
@@ -85,28 +68,5 @@ package body lvds_decoder_pkg is
         report "Can't compute align offset" severity failure;
         return 0;  -- TODO: trigger some kind of error if we get here
     end function calc_align_offset;
-
-    pure function bitreverse(bits : std_logic_vector) return std_logic_vector is
-        variable bits_reversed : std_logic_vector(bits'range);
-    begin
-        for i in bits'range loop
-            bits_reversed(bits_reversed'high - i) := bits(i);
-        end loop;
-        return bits_reversed;
-    end function bitreverse;
-
-    pure function bitreverse(bits : unsigned) return unsigned is
-    begin
-        return unsigned(bitreverse(std_logic_vector(bits)));
-    end function bitreverse;
-
-    pure function bitreverse(fragment : pixel_vector_t) return pixel_vector_t is
-        variable fragment_reversed : pixel_vector_t(fragment'range)(fragment(0)'range);
-    begin
-        for i_pixel in fragment'range loop
-            fragment_reversed(i_pixel) := bitreverse(fragment(i_pixel));
-        end loop;
-        return fragment_reversed;
-    end function bitreverse;
 
 end package body lvds_decoder_pkg;

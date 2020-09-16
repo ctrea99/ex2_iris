@@ -22,6 +22,7 @@ use ieee.numeric_std.all;
 use work.vnir_base.all;
 use work.lvds_decoder_pkg.all;
 use work.LVDS_data_array_pkg.all;
+use work.logic_types.all;
 
 entity lvds_decoder_in is
 generic (
@@ -46,13 +47,19 @@ end entity lvds_decoder_in;
 
 architecture rtl of lvds_decoder_in is
 
+    constant CTRL_TRAINING_PATTERN : std_logic_vector(PIXEL_BITS-1 downto 0) := (9 => '1', others => '0');
+    constant DATA_TRAINING_PATTERN : std_logic_vector(PIXEL_BITS-1 downto 0) := std_logic_vector(to_unsigned(85, PIXEL_BITS));
+
     component lvds_reader_top is
     generic (
-        NUM_CHANNELS            : integer := FRAGMENT_WIDTH
+        NUM_CHANNELS            : integer := FRAGMENT_WIDTH;
+
+        -- ALTLVDS and the sensor use different bit orderings
+        DATA_TRAINING_PATTERN   : std_logic_vector := bitreverse(DATA_TRAINING_PATTERN);
+        CTRL_TRAINING_PATTERN   : std_logic_vector := bitreverse(CTRL_TRAINING_PATTERN)
     );
     port (
-        system_clock            : in std_logic;
-        system_reset            : in std_logic;
+        reset_n                 : in std_logic;
         lvds_data_in            : in std_logic_vector(NUM_CHANNELS-1 downto 0);
         lvds_ctrl_in            : in std_logic;
         lvds_clock_in           : in std_logic;
@@ -68,10 +75,10 @@ architecture rtl of lvds_decoder_in is
     
     signal align_done  : std_logic;
 
-    signal lvds_parallel_data : t_lvds_data_array(NUM_CHANNELS-1 downto 0)(PIXEL_BITS-1 downto 0);
-    signal lvds_parallel ctrl : std_logic_vector(PIXEL_BITS-1 downto 0);
+    signal lvds_parallel_data : t_lvds_data_array(FRAGMENT_WIDTH-1 downto 0)(PIXEL_BITS-1 downto 0);
+    signal lvds_parallel_ctrl : std_logic_vector(PIXEL_BITS-1 downto 0);
 
-    signal data_flat_ordered : std_logic_vector((NUM_CHANNELS-1)*(PIXEL_BITS-1)-1 downto 0);
+    signal data_flat_ordered : std_logic_vector(FRAGMENT_WIDTH*PIXEL_BITS-1 downto 0);
     signal ctrl_flat_ordered : std_logic_vector(PIXEL_BITS-1 downto 0);
 
 begin
@@ -92,7 +99,10 @@ begin
 
     -- ALTLVDS and the sensor use different bit orderings
     data_flat_ordered <= flatten(bitreverse(lvds_parallel_data));
-    ctrl_flat_ordered <= bitreverse(lcontrol);
+    ctrl_flat_ordered <= bitreverse(lvds_parallel_ctrl);
+
+    -- data_flat_ordered <= flatten(bitreverse(lvds_parallel_data));
+    -- ctrl_flat_ordered <= bitreverse(lvds_parallel_ctrl);
 
     fsm : process (clock)
         variable aligned : boolean;
@@ -107,9 +117,9 @@ begin
                 aligned := true;
             end if;
 
-            if aligned:
-                to_fifo <= "1" & lcontrol_ordered & lfragment_ordered;
-            else:
+            if aligned then
+                to_fifo <= "1" & ctrl_flat_ordered & data_flat_ordered;
+            else
                 to_fifo <= (others => '0');
             end if;
         end if;

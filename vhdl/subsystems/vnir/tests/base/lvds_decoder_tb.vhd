@@ -94,8 +94,8 @@ architecture tests of lvds_decoder_tb is
 
     constant CONTROL_IDLE    : lpixel_t := (9 => '1', others => '0');
     constant CONTROL_READOUT : lpixel_t := (0 => '1', others => '0');
+    constant DATA_IDLE       : lfragment_t := (others => ("0001010101"));
 
-    signal data_idle     : lfragment_t;
     signal data_transmit : lfragment_vector_t(10-1 downto 0);
 
     constant LVDS_CLOCK_PERIOD : time := 4.167 ns;
@@ -145,13 +145,11 @@ begin
     end process clock_process;
     
     init_process : process
-        file data_idle_file : text open read_mode is OUT_DIR & "data_idle.out";
         file data_transmit_file : text open read_mode is OUT_DIR & "data_transmit.out";
         variable d : lfragment_t;
         variable d_v : lfragment_vector_t(data_transmit'range);
     begin
          wait until rising_edge(clock);
-         read(data_idle_file, d); data_idle <= d;
          read(data_transmit_file, d_v); data_transmit <= d_v;
          wait;
     end process init_process;
@@ -160,7 +158,7 @@ begin
     begin
         case state is
         when IDLE =>
-            lvds_transmit(CONTROL_IDLE, data_idle, lvds_clock, lvds_control, lvds_data);
+            lvds_transmit(CONTROL_IDLE, DATA_IDLE, lvds_clock, lvds_control, lvds_data);
         when TRANSMIT =>
             for word in data_transmit'range loop
                 lvds_transmit(CONTROL_READOUT, data_transmit(word), lvds_clock, lvds_control, lvds_data);
@@ -186,7 +184,7 @@ begin
             wait until rising_edge(clock) and fragment_available = '1';
             assert fragment_control = to_control(CONTROL_IDLE) severity failure;
             for i in fragment'range loop
-                assert to_lpixel(fragment(i)) = data_idle(i) severity failure;
+                assert to_lpixel(fragment(i)) = DATA_IDLE(i) severity failure;
             end loop;
             wait until rising_edge(clock);
         end loop;
