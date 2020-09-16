@@ -147,7 +147,7 @@ begin
         FIFO_BITS => FIFO_BITS
     ) port map (
         clock => inclock,
-        reset_n => reset_n,  -- TODO: how should a reset cross a clock boundary?
+        reset_n => reset_n,
         lvds_data => lvds_data,
         lvds_control => lvds_control,
         lvds_clock => lvds_clock,

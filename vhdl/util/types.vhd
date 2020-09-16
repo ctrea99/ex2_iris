@@ -134,6 +134,9 @@ package logic_types is
     -- '1' bit in `flag`
     pure function bitwise_contains(flags : std_logic_vector; flag : std_logic_vector) return boolean;
 
+    pure function bitreverse(bits : std_logic_vector) return std_logic_vector;
+    pure function bitreverse(bits : unsigned) return unsigned;
+
 end package logic_types;
 
 
@@ -199,6 +202,20 @@ package body logic_types is
     begin
         return or_reduce(flags and flag) = '1';
     end function bitwise_contains;
+
+    pure function bitreverse(bits : std_logic_vector) return std_logic_vector is
+        variable bits_reversed : std_logic_vector(bits'range);
+    begin
+        for i in bits'range loop
+            bits_reversed(bits_reversed'high - i) := bits(i);
+        end loop;
+        return bits_reversed;
+    end function bitreverse;
+
+    pure function bitreverse(bits : unsigned) return unsigned is
+    begin
+        return unsigned(bitreverse(std_logic_vector(bits)));
+    end function bitreverse;
 
 end package body logic_types;
 
