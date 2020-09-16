@@ -73,6 +73,8 @@ architecture rtl of lvds_decoder_in is
     );
     end component lvds_reader_top;
     
+    signal clock_s : std_logic;
+
     signal align_done  : std_logic;
 
     signal lvds_parallel_data : t_lvds_data_array(FRAGMENT_WIDTH-1 downto 0)(PIXEL_BITS-1 downto 0);
@@ -92,10 +94,11 @@ begin
         cmd_start_align => start_align,
         word_alignment_error => open,  -- TODO: use this output
         pll_locked => open,  -- TODO: use this output
-        lvds_parallel_clock => clock,
+        lvds_parallel_clock => clock_s,
         lvds_parallel_data => lvds_parallel_data,
         lvds_parallel_ctrl => lvds_parallel_ctrl
     );
+    clock <= clock_s;
 
     -- ALTLVDS and the sensor use different bit orderings
     data_flat_ordered <= flatten(bitreverse(lvds_parallel_data));
@@ -104,13 +107,13 @@ begin
     -- data_flat_ordered <= flatten(bitreverse(lvds_parallel_data));
     -- ctrl_flat_ordered <= bitreverse(lvds_parallel_ctrl);
 
-    fsm : process (clock)
+    fsm : process (clock_s)
         variable aligned : boolean;
     begin
         if reset_n = '0' then
             aligned := false;
             to_fifo <= (others => '0');
-        elsif rising_edge(clock) then
+        elsif rising_edge(clock_s) then
             if start_align = '1' then
                 aligned := false;
             elsif align_done = '1' then
